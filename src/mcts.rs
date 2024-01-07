@@ -72,7 +72,10 @@ impl Game {
     let moves = self.board.legal_moves();
     let evaluations: Vec<(f64, Move)> = moves
       .into_iter()
-      .map(|m| (evaluate_move(&self.board, m), m.clone()))
+      .map(|m| {
+        let m_clone = m.clone();
+        (evaluate_move(&self.board, m_clone), m)
+      })
       .collect();
 
     let min = evaluations.iter().map(|e_m| e_m.0).fold(f64::INFINITY, f64::min) - 0.01;
