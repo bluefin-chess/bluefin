@@ -1,8 +1,8 @@
 use std::arch::x86_64::_lzcnt_u32; // for fast log2
 // use chess::{Board, ChessMove as Move, MoveGen};
 use std::collections::HashMap;
-use crate::evaluate::evaluate_move;
-use shakmaty::{Chess as Board, Move, Position, zobrist::{self, Zobrist64, ZobristHash}, EnPassantMode};
+use crate::evaluate::{evaluate_move, evaluate};
+use shakmaty::{Chess as Board, Move, Position, zobrist::{Zobrist64, ZobristHash}, EnPassantMode};
 use std::rc::Rc;
 use crate::time::Timer;
 
@@ -26,7 +26,8 @@ pub struct Node {
   children: Option<Vec<(Move, Rc<Node>)>>,
 }
 
-type move_list = Vec<(Move, Rc<Node>)>;
+type MoveList = Vec<(Move, Rc<Node>)>;
+type TranspositionTable = HashMap<Zobrist64, Rc<Node>>;
 
 impl Node {
   pub fn new(prior: f64, value_sum: f64, visits: u32, children: Option<Vec<(Move, Rc<Node>)>>) -> Node {
@@ -62,6 +63,20 @@ impl Node {
     best_child
   }
 
+  fn best_move(&self) -> Move {
+    let mut best_move;
+    let mut most_visits = 0;
+
+    for (mov, node) in self.children.as_ref().unwrap().iter() {
+      if node.visits > most_visits {
+        most_visits = node.visits;
+        best_move = mov.clone();
+      }
+    }
+
+    best_move
+  }
+
 }
 
 // w = winning score, n = visits, c = exploration constant, N = parent visits
@@ -88,7 +103,7 @@ fn ucb1_inv(visits: u32, score: f64, parentvisits: u32) -> f64 {
 
 pub struct Game {
   board: Board,
-  trans_table: HashMap<zobrist::Zobrist64, Rc<Node>>,
+  trans_table: TranspositionTable,
 }
 
 impl Game {
@@ -102,14 +117,14 @@ impl Game {
   fn zoby(board: &Board) -> Zobrist64 {
     board.zobrist_hash(EnPassantMode::Legal)
   }
-  
-  fn expand(&mut self) -> Vec<(Move, Rc<Node>)> {
-    let moves = self.board.legal_moves();
+
+  fn expand(board: &mut Board, trans_table: &mut TranspositionTable) -> Vec<(Move, Rc<Node>)> {
+    let moves = board.legal_moves();
     let evaluations: Vec<(f64, Move)> = moves
       .into_iter()
       .map(|m| {
         let m_clone = m.clone();
-        (evaluate_move(&self.board, m_clone), m)
+        (evaluate_move(board, m_clone), m)
       })
       .collect();
 
@@ -117,12 +132,12 @@ impl Game {
     let sum: f64 = evaluations.iter().map(|e_m| e_m.0 - min).sum();
 
     evaluations.iter().map(|e_m| {
-      let mut temp_board = self.board.clone();
+      let mut temp_board = board.clone();
       temp_board.play_unchecked(&e_m.1);
       let key = Game::zoby(&temp_board);
       
       // get node from key in table or insert new node if it doesn't exist
-      let node: Rc<Node> = self.trans_table.entry(key).or_insert_with(|| {
+      let node: Rc<Node> = trans_table.entry(key).or_insert_with(|| {
         Rc::new(Node::new((e_m.0 - min) / sum, 0f64, 0, None))
       }).clone();
 
@@ -130,34 +145,52 @@ impl Game {
     }).collect()
   }
 
-  fn selection(&mut self, node: &mut Node, path: &mut move_list) { 
+  fn selection(board: &mut Board, node: &mut Node, path: &mut MoveList) { 
     while node.visits > 0 && node.has_unvisited_children() {
       let (mov, child) = node.select_best_child();
-      self.board.play_unchecked(&mov);
+      board.play_unchecked(&mov);
       path.push((mov, child));
     }
   }
 
-  fn expansion(&mut self, node: &mut Node) {
-    if !self.board.legal_moves().is_empty()  {
-      node.children = Some(self.expand());
-      
+  fn expansion(board: &mut Board, node: &mut Node, path: &mut MoveList, trans_table: &mut TranspositionTable) {
+    if !board.legal_moves().is_empty()  {
+      node.children = Some(Game::expand(board, trans_table));
+      let (mov, child) = node.select_best_child();
+      board.play_unchecked(&mov);
+      path.push((mov, child));
     }
   }
 
-  fn backpropagation(&mut self) {}
+  fn backpropagation(board: &Board, path: &mut MoveList) {
+    let mut val = {
+      if board.is_game_over() {
+        // draw if not checkmate
+        if board.is_checkmate() { 1f64 } else { 0f64  }
+      } else {
+        evaluate(&board)
+      }
+    };
+
+    for mov in path.iter_mut().rev() {
+      mov.1.value_sum += val;
+      mov.1.visits += 1;
+      val = -val; // flip for side
+    }
+  }
 
   pub fn mcts(&mut self, root: &mut Node, timer: Timer) -> Move { // returns best move
+    let mut board = self.board.clone();
+
     while timer.is_time_remaining_5() {
-      let node = root;
       let mut path: Vec<(Move, Rc<Node>)> = Vec::new();
 
-      self.selection(node, &mut path);
-      let leaf = path.last_mut().unwrap().1;
-      self.expansion(&mut leaf);
-
-      
+      Game::selection(&mut board, root, &mut path);
+      let leaf: Rc<Node> = path.last_mut().unwrap().1;
+      Game::expansion(&mut board, root, &mut path, &mut self.trans_table);
+      Game::backpropagation(&board, &mut path);
     }
-    root.children[0]      
+    
+    root.best_move()
   }
 }

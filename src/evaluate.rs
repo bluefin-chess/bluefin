@@ -1,4 +1,4 @@
-use shakmaty::{Chess as Board, Move};
+use shakmaty::{Chess as Board, Move, Position};
 // CNN evaluation function
 // ideas for inputs: 64 squares w/ piece numbers and 2 more for enpassant and castle rights, basically a fen
 
