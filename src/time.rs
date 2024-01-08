@@ -1,8 +1,8 @@
 use std::time::{Duration, Instant}; 
 
 pub struct Timer {
-  start: Instant,
-  duration: Duration,
+  pub start: Instant,
+  pub duration: Duration,
 }
 
 impl Timer {
@@ -22,7 +22,7 @@ impl Timer {
     self.start.elapsed() < (self.remaining() * frac / 100)
   }
 
-  pub fn is_time_remaining_5(&self) -> bool {
+  pub fn is_time_remaining_5(&self) -> bool { // > 5% remaining time
     self.is_time_remaining(5)
   }
 }

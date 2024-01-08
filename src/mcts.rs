@@ -6,19 +6,6 @@ use shakmaty::{Chess as Board, Move, Position, zobrist::{Zobrist64, ZobristHash}
 use std::rc::Rc;
 use crate::time::Timer;
 
-// fast inverse square root from Quake III Arena
-// https://en.wikipedia.org/wiki/Fast_inverse_square_root
-/*
-fn fast_inv_sqrt(x: f64) -> f64 {
-  let xhalf = 0.5 * x;
-  let mut i = x.to_bits();
-  i = 0x5f3759df - (i >> 1);
-  let x = f64::from_bits(i);
-  x * (1.5 - xhalf * x * x)
-  // x * (1.5 - xhalf * x * x)
-}
-*/
-
 pub struct Node {
   prior: f64,
   value_sum: f64,
@@ -48,33 +35,37 @@ impl Node {
 
   fn select_best_child(&self) -> (Move, Rc<Node>) {
     let children = self.children.as_ref().unwrap();
+    if children.is_empty() { panic!("no children to select from") }
+
     let mut best_child_score = f64::NEG_INFINITY;
-    let mut best_child: (Move, Rc<Node>);
+    let mut best_child: Option<(Move, Rc<Node>)> = None;
 
     // there's definitely a more idiomatic way to do this but I couldn't find one that wasn't confusing to read
     for (mov, node) in children.iter() {
       let score = ucb1(node.visits, node.value_sum, self.visits);
       if score > best_child_score {
         best_child_score = score;
-        best_child = (mov.clone(), Rc::clone(node));
+        best_child = Some((mov.clone(), Rc::clone(node)));
       }
     }
 
-    best_child
+    best_child.expect("no best child found")
   }
 
   fn best_move(&self) -> Move {
-    let mut best_move;
+    let mut best_move: Option<&Move> = None;
     let mut most_visits = 0;
+    let children = self.children.as_ref().unwrap();
+    if children.is_empty() { panic!("no children to select from") }
 
-    for (mov, node) in self.children.as_ref().unwrap().iter() {
+    for (mov, node) in children.iter() {
       if node.visits > most_visits {
         most_visits = node.visits;
-        best_move = mov.clone();
+        best_move = Some(mov);
       }
     }
 
-    best_move
+    best_move.expect("no best move found").clone()
   }
 
 }
@@ -82,7 +73,6 @@ impl Node {
 // w = winning score, n = visits, c = exploration constant, N = parent visits
 // original UCB 1: w/n + c * sqrt(ln(N) / n)
 // convert ln into log2: w/n + c * sqrt(log2(N) / n * log2(e))
-// flip fraction to use fast inv sqrt: w/n + c * inv_sqrt(n / log2(N))
 // note that we got rid of log2(e) because it only affects C, and that's a value we plan on playing around with anyway
 pub fn ucb1(visits: u32, score: f64, parentvisits: u32) -> f64 {
   let c = 1f64; // exploration constant, we can play around with this value later
@@ -91,15 +81,6 @@ pub fn ucb1(visits: u32, score: f64, parentvisits: u32) -> f64 {
   let log2_N: f64 = unsafe { (63 - _lzcnt_u32(parentvisits)) as f64 }; // fast log2
   (score / n) + c * (log2_N / n).sqrt() // we never divide by 0 because visits >= 1
 }
-
-/* 
-fn ucb1_inv(visits: u32, score: f64, parentvisits: u32) -> f64 {
-  let c = 1f64; // exploration constant, we can play around with this value later
-  let n = visits as f64;
-  let log2_n = unsafe { (63 - _lzcnt_u64(parentvisits)) as f64 }; // fast log2
-  (score / n) + c * fast_inv_sqrt(n / log2_n)
-}
-*/
 
 pub struct Game {
   board: Board,
@@ -186,7 +167,6 @@ impl Game {
       let mut path: Vec<(Move, Rc<Node>)> = Vec::new();
 
       Game::selection(&mut board, root, &mut path);
-      let leaf: Rc<Node> = path.last_mut().unwrap().1;
       Game::expansion(&mut board, root, &mut path, &mut self.trans_table);
       Game::backpropagation(&board, &mut path);
     }
