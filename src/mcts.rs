@@ -4,12 +4,13 @@ use std::collections::HashMap;
 use crate::evaluate::{evaluate_move, evaluate};
 use shakmaty::{Chess as Board, Move, Position, zobrist::{Zobrist64, ZobristHash}, EnPassantMode};
 use std::rc::Rc;
+use std::cell::RefCell;
 use crate::time::Timer;
 
 pub struct Node {
   prior: f64,
-  value_sum: f64,
-  visits: u32, // 32 bits should be more than enough
+  value_sum: RefCell<f64>,
+  visits: RefCell<u32>, // 32 bits should be more than enough
   children: Option<Vec<(Move, Rc<Node>)>>,
 }
 
@@ -20,15 +21,15 @@ impl Node {
   pub fn new(prior: f64, value_sum: f64, visits: u32, children: Option<Vec<(Move, Rc<Node>)>>) -> Node {
     Node {
       prior,
-      value_sum,
-      visits,
+      value_sum: RefCell::new(value_sum),
+      visits: RefCell::new(visits),
       children,
     }
   }
 
   fn has_unvisited_children(&self) -> bool {
     match self.children {
-      Some(ref children) => children.iter().any(|(_, ref child)| child.visits == 0),
+      Some(ref children) => children.iter().any(|(_, ref child)| *child.visits.borrow() == 0),
       None => false,
     }
   }
@@ -42,7 +43,7 @@ impl Node {
 
     // there's definitely a more idiomatic way to do this but I couldn't find one that wasn't confusing to read
     for (mov, node) in children.iter() {
-      let score = ucb1(node.visits, node.value_sum, self.visits);
+      let score = ucb1(*node.visits.borrow(), *node.value_sum.borrow(), *self.visits.borrow());
       if score > best_child_score {
         best_child_score = score;
         best_child = Some((mov.clone(), Rc::clone(node)));
@@ -59,8 +60,9 @@ impl Node {
     if children.is_empty() { panic!("no children to select from") }
 
     for (mov, node) in children.iter() {
-      if node.visits > most_visits {
-        most_visits = node.visits;
+      let visits = *node.visits.borrow();
+      if visits > most_visits {
+        most_visits = visits;
         best_move = Some(mov);
       }
     }
@@ -127,7 +129,7 @@ impl Game {
   }
 
   fn selection(board: &mut Board, node: &mut Node, path: &mut MoveList) { 
-    while node.visits > 0 && node.has_unvisited_children() {
+    while *node.visits.borrow() > 0 && node.has_unvisited_children() {
       let (mov, child) = node.select_best_child();
       board.play_unchecked(&mov);
       path.push((mov, child));
@@ -149,13 +151,13 @@ impl Game {
         // draw if not checkmate
         if board.is_checkmate() { 1f64 } else { 0f64  }
       } else {
-        evaluate(&board)
+        evaluate(board)
       }
     };
 
     for mov in path.iter_mut().rev() {
-      mov.1.value_sum += val;
-      mov.1.visits += 1;
+      *mov.1.value_sum.borrow_mut() += val;
+      *mov.1.visits.borrow_mut() += 1;
       val = -val; // flip for side
     }
   }
