@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use crate::evaluate::evaluate_move;
 use shakmaty::{Chess as Board, Move, Position, zobrist::{self, Zobrist64, ZobristHash}, EnPassantMode};
 use std::rc::Rc;
+use crate::time::Timer;
 
 // fast inverse square root from Quake III Arena
 // https://en.wikipedia.org/wiki/Fast_inverse_square_root
@@ -18,15 +19,17 @@ fn fast_inv_sqrt(x: f64) -> f64 {
 }
 */
 
-struct Node {
+pub struct Node {
   prior: f64,
   value_sum: f64,
   visits: u32, // 32 bits should be more than enough
   children: Option<Vec<(Move, Rc<Node>)>>,
 }
 
+type move_list = Vec<(Move, Rc<Node>)>;
+
 impl Node {
-  fn new(prior: f64, value_sum: f64, visits: u32, children: Option<Vec<(Move, Rc<Node>)>>) -> Node {
+  pub fn new(prior: f64, value_sum: f64, visits: u32, children: Option<Vec<(Move, Rc<Node>)>>) -> Node {
     Node {
       prior,
       value_sum,
@@ -34,6 +37,14 @@ impl Node {
       children,
     }
   }
+
+  fn has_unvisited_children(&self) -> bool {
+    match self.children {
+      Some(ref children) => children.iter().any(|(_, ref child)| child.visits == 0),
+      None => false,
+    }
+  }
+
 }
 
 // w = winning score, n = visits, c = exploration constant, N = parent visits
@@ -58,12 +69,19 @@ fn ucb1_inv(visits: u32, score: f64, parentvisits: u32) -> f64 {
 }
 */
 
-struct Game {
+pub struct Game {
   board: Board,
   trans_table: HashMap<zobrist::Zobrist64, Rc<Node>>,
 }
 
 impl Game {
+  pub fn default() -> Game {
+    Game {
+      board: Board::default(),
+      trans_table: HashMap::new(),
+    }
+  }
+  
   fn zoby(board: &Board) -> Zobrist64 {
     board.zobrist_hash(EnPassantMode::Legal)
   }
@@ -86,7 +104,8 @@ impl Game {
       temp_board.play_unchecked(&e_m.1);
       let key = Game::zoby(&temp_board);
       
-      let node = self.trans_table.entry(key).or_insert_with(|| {
+      // get node from key in table or insert new node if it doesn't exist
+      let node: Rc<Node> = self.trans_table.entry(key).or_insert_with(|| {
         Rc::new(Node::new((e_m.0 - min) / sum, 0f64, 0, None))
       }).clone();
 
@@ -94,4 +113,25 @@ impl Game {
     }).collect()
   }
 
+  fn selection(node: &mut Node, path: &mut move_list) { // modifies 
+    while node.visits > 0 && node.has_unvisited_children() {
+
+    }
+  }
+
+  fn expansion(&mut self, node: &mut Node) {
+    if !self.board.legal_moves().is_empty()  {
+      node.children = Some(self.expand());
+      
+    }
+  }
+
+  fn backpropagation(&mut self) {}
+
+  pub fn mcts(&mut self, root: &mut Node) -> Move { // returns best move
+    let node = root;
+    let mut path: Vec<(Move, Node)> = Vec::new();
+
+    root.children[0]
+  }
 }
