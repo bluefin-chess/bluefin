@@ -45,6 +45,23 @@ impl Node {
     }
   }
 
+  fn select_best_child(&self) -> (Move, Rc<Node>) {
+    let children = self.children.as_ref().unwrap();
+    let mut best_child_score = f64::NEG_INFINITY;
+    let mut best_child: (Move, Rc<Node>);
+
+    // there's definitely a more idiomatic way to do this but I couldn't find one that wasn't confusing to read
+    for (mov, node) in children.iter() {
+      let score = ucb1(node.visits, node.value_sum, self.visits);
+      if score > best_child_score {
+        best_child_score = score;
+        best_child = (mov.clone(), Rc::clone(node));
+      }
+    }
+
+    best_child
+  }
+
 }
 
 // w = winning score, n = visits, c = exploration constant, N = parent visits
@@ -113,9 +130,11 @@ impl Game {
     }).collect()
   }
 
-  fn selection(node: &mut Node, path: &mut move_list) { // modifies 
+  fn selection(&mut self, node: &mut Node, path: &mut move_list) { 
     while node.visits > 0 && node.has_unvisited_children() {
-
+      let (mov, child) = node.select_best_child();
+      self.board.play_unchecked(&mov);
+      path.push((mov, child));
     }
   }
 
@@ -128,10 +147,17 @@ impl Game {
 
   fn backpropagation(&mut self) {}
 
-  pub fn mcts(&mut self, root: &mut Node) -> Move { // returns best move
-    let node = root;
-    let mut path: Vec<(Move, Node)> = Vec::new();
+  pub fn mcts(&mut self, root: &mut Node, timer: Timer) -> Move { // returns best move
+    while timer.is_time_remaining_5() {
+      let node = root;
+      let mut path: Vec<(Move, Rc<Node>)> = Vec::new();
 
-    root.children[0]
+      self.selection(node, &mut path);
+      let leaf = path.last_mut().unwrap().1;
+      self.expansion(&mut leaf);
+
+      
+    }
+    root.children[0]      
   }
 }
