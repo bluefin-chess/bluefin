@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 chess = "3.2.0"
+rand = "0.8.5"
 shakmaty = "0.26.0"
 
 [[bin]]
