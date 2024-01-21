@@ -5,7 +5,7 @@ mod time;
 use shakmaty::{Move, Position};
 
 fn main() {
-  let mut node = mcts::Node::new(0f64, 0f64, 1, None);
+  let mut node = mcts::Node::new(1f64, 1, None);
   let mut game = mcts::Game::default();
 
   println!("default eval: {}", evaluate::evaluate(&game.board));
